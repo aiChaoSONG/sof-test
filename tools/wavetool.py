@@ -7,6 +7,7 @@ import numpy as np
 import scipy.signal as signal
 import scipy.io.wavfile as wavefile
 import scipy.fftpack as fftpack
+import matplotlib.pyplot as plt
 
 eps = 0.0000000001 # used to avoid zero division error
 
@@ -33,6 +34,35 @@ class WavGenerator:
         data = float(param_dict['amp']) / maxnum * data
         return np.reshape(np.repeat(data, int(param_dict['channel'])),[len(data), int(param_dict['channel'])])
 
+    @staticmethod
+    def generateWOV(param_dict):
+        # leave 5 zeros for boundary detecting
+        wave_size = 8000 + int((float(param_dict['duration1']) + float(param_dict['duration2'])) * float(param_dict['sample_rate']))
+        sine_param2 = {
+            'amp':param_dict['amp2'],
+            'freq': param_dict['freq2'],
+            'phase': "0.",
+            'sample_rate': param_dict['sample_rate'],
+            'channel': param_dict['channel'],
+            'duration': param_dict['duration2']
+        }
+        sine_data2 = WavGenerator.generateSine(sine_param2)
+        data = np.zeros((wave_size, int(param_dict['channel'])))
+        data[:][data.shape[0] - sine_data2.shape[0]:data.shape[0]] = sine_data2
+        if param_dict['type'] == 'wov_zeros_sine':
+            return data
+        sine_param1 = {
+            'amp':param_dict['amp1'],
+            'freq': param_dict['freq1'],
+            'phase': "0.",
+            'sample_rate': param_dict['sample_rate'],
+            'channel': param_dict['channel'],
+            'duration': param_dict['duration1']
+        }
+        sine_data1 = WavGenerator.generateSine(sine_param1)
+        data[:][0:sine_data1.shape[0]] = sine_data1
+        return data
+
 if __name__ == "__main__":
     def parse_cmdline():
         parser = argparse.ArgumentParser(add_help=True, formatter_class=argparse.RawTextHelpFormatter,
@@ -47,6 +77,7 @@ if __name__ == "__main__":
         parser.add_argument('-p', '--preset', type=str, help='Commonly used wave presets, supported presets:\n'
         'sine_1K_10s, white_noise')
         parser.add_argument('-a', '--analysis', type=str, help='Analyze wave file, (GUI required)')
+        parser.add_argument('-H', '--hb_size', type=float, help='history buffer size used used in Wake-On-Voice', default=2.1)
         parser.add_argument('-c', '--compare', type=str, help='compare recorded wave and reference wave\n'
         'parameter format: "mode;recorded_wave_path; reference_wave_path"\n'
         'Supported comparison mode: freq, binary')
@@ -57,8 +88,9 @@ if __name__ == "__main__":
         return vars(parser.parse_args())
 
     def parse_params_and_gen_wav(cmd_param):
-        supported_type = ['sine', 'cosine', 'white_noise']
+        supported_type = ['sine', 'cosine', 'white_noise', 'wov_sine_sine', 'wov_zeros_sine']
         param_keys = ['type', 'amp', 'freq', 'phase', 'sample_rate', 'channel', 'format', 'duration']
+        param_keys_wov = ['type', 'amp1', 'freq1', 'duration1','amp2', 'freq2', 'duration2', 'sample_rate', 'channel', 'format']
         split_cmd_params = cmd_param.split(';')
         wave_params = [param.strip() for param in split_cmd_params]
         param_dict = dict(zip(param_keys, wave_params))
@@ -74,15 +106,22 @@ if __name__ == "__main__":
         if param_dict['type'] == 'white_noise':
             wave_data = WavGenerator.generateRandom(param_dict)
             return wave_data, param_dict
+        if param_dict['type'] in ['wov_sine_sine', 'wov_zeros_sine']:
+            param_dict_wov = dict(zip(param_keys_wov, wave_params))
+            wave_data = WavGenerator.generateWOV(param_dict_wov)
+            return wave_data, param_dict_wov
 
     def store_wave(wave_data, wave_params, path):
         supported_format = ['S8', 'S16', 'S32', 'F32']
         wave_path = path
-        if path == '.' or not path.endswith('wav'):
-            wave_name = wave_params['type'] + wave_params['channel'] + 'ch' + wave_params['freq'] + 'Hz' + wave_params['sample_rate'] + '.wav'
-            if wave_params['type'] == 'white_noise':
-                wave_name = wave_params['type'] + wave_params['channel'] + 'ch' + wave_params['freq'] + 'mean' + wave_params['phase'] + 'std' + wave_params['sample_rate'] + '.wav'
-            wave_path = path + '/'  + wave_name
+        if not path.endswith('wav'):
+            if (wave_params['type'] in ['wov_sine_sine', 'wov_zeros_sine']):
+                wave_path = path + "/" + wave_params['type'] + '.wav'
+            else:
+                wave_name = wave_params['type'] + wave_params['channel'] + 'ch' + wave_params['freq'] + 'Hz' + wave_params['sample_rate'] + '.wav'
+                if wave_params['type'] == 'white_noise':
+                    wave_name = wave_params['type'] + wave_params['channel'] + 'ch' + wave_params['freq'] + 'mean' + wave_params['phase'] + 'std' + wave_params['sample_rate'] + '.wav'
+                wave_path = path + '/'  + wave_name
         wave_format = wave_params['format'].upper()
         if wave_format not in supported_format:
             print('Unsupported wave format: %s' % wave_format)
@@ -154,11 +193,11 @@ if __name__ == "__main__":
         left_idx = 0
         right_idx = wave_mono.shape[0] - 1
         while True:
-            if wave_mono[left_idx] != 0:
+            if abs(wave_mono[left_idx]) > 100:
                 break
             left_idx = left_idx + 1
         while True:
-            if wave_mono[right_idx] != 0:
+            if abs(wave_mono[right_idx]) > 100:
                 break
             right_idx = right_idx - 1
         return wave[left_idx:right_idx,:], left_idx
@@ -235,6 +274,75 @@ if __name__ == "__main__":
         else:
             print("Wave comparison result: FAILED")
 
+    def find_zero_range(wave, start, backward=False):
+        step = 100
+        if backward:
+            step = -step
+        win = 100 * np.ones(abs(step), dtype=wave.dtype)
+        while not np.all(np.abs(wave[start:start + abs(step)]) < win):
+            start = start + step
+        end = start
+        while np.all(np.abs(wave[start:start + abs(step)]) < win) and start > 0:
+            start = start - 1
+        while np.all(np.abs(wave[end:end + abs(step)]) < win) and end < wave.shape[0]:
+            end = end + 1
+        return start,end + abs(step) - 1
+
+    def calc_spectrum(wave, fftsize, window_type, threshold):
+        windowed_signal = signal.get_window(window_type, fftsize) * wave
+        wave_spectrum = normalize(abs(fftpack.fft(windowed_signal, fftsize))[0: fftsize//2])
+        wave_spectrum_log = 20 * np.log10(wave_spectrum)
+        peaks = signal.find_peaks(wave_spectrum_log, height=threshold)
+        return wave_spectrum_log, peaks
+
+    def calc_ref_wave_params(wave, fs_ref, **cmd_args):
+        fftsize = cmd_args['fftsize']
+        zero_start, zero_end = find_zero_range(wave, 0)
+        # calculate frequency of low volume sine wave
+
+        lfft_start = (zero_start - fftsize) // 2
+        lspectrum, low_vol_sine_peak = calc_spectrum(wave[lfft_start: lfft_start + fftsize], fftsize, cmd_args['window_type'], cmd_args['threshold'])
+        low_sine_freq = low_vol_sine_peak[0][0] / fftsize * fs_ref if len(low_vol_sine_peak[0] == 1) else 0.
+        # calculate frequency of high volume sine wave
+        hfft_start = zero_end + (wave.shape[0] - fftsize - zero_end) // 2
+        hspectrum, high_vol_sine_peak = calc_spectrum(wave[hfft_start: hfft_start + fftsize], fftsize, cmd_args['window_type'], cmd_args['threshold'])
+        high_sine_freq = low_vol_sine_peak[0][0] / fftsize * fs_ref if len(high_vol_sine_peak[0] == 1) else 0.
+        return zero_start, zero_end, low_sine_freq, high_sine_freq
+
+    def calc_wov_wav_params(wave, fs_wav, **cmd_args):
+        fftsize = cmd_args['fftsize']
+        start_search_point = int(fs_wav * cmd_args['hb_size'])
+        zero_start, zero_end = find_zero_range(wave, start_search_point, backward=True)
+        lfft_start = (zero_start - fftsize) // 2
+        lspectrum, low_vol_sine_peak = calc_spectrum(wave[lfft_start: lfft_start + fftsize], fftsize, cmd_args['window_type'], cmd_args['threshold'])
+        low_sine_freq = low_vol_sine_peak[0][0] / fftsize * fs_wav if len(low_vol_sine_peak[0] == 1) else 0.
+        # calculate frequency of high volume sine wave
+        hfft_start = zero_end + (wave.shape[0] - fftsize - zero_end) // 2
+        hspectrum, high_vol_sine_peak = calc_spectrum(wave[hfft_start: hfft_start + fftsize], fftsize, cmd_args['window_type'], cmd_args['threshold'])
+        high_sine_freq = low_vol_sine_peak[0][0] / fftsize * fs_wav if len(high_vol_sine_peak[0] == 1) else 0.
+        return zero_start, zero_end, low_sine_freq, high_sine_freq
+
+    def print_wov_wave_param(params, wave_length, fs):
+        print('Low volume sine wave duration: %0.5fs ~ %0.3fs' % (0., (params[0] - 1) / fs))
+        print('Low volume sine wave frequency: %0.2f Hz' % params[2])
+        print('High volume sine wave duration: %0.5fs ~ %0.3fs' % (params[1] / fs, wave_length / fs))
+        print('High volume sine wave frequency: %0.2f Hz' % (params[3]))
+
+    def compare_wav_wov(wav_path, ref_path, **cmd_args):
+        hb_size = cmd_args['hb_size']
+        fftsize = cmd_args['fftsize']
+        window_type = cmd_args['window_type']
+        fs_wav, wave = wavefile.read(wav_path)
+        fs_ref, ref_wav = wavefile.read(ref_path)
+        trimed_wave, _ = trim_wave(wave)
+        if fs_wav != fs_ref:
+            print('Can not compare wave with different sample rate')
+            sys.exit(1)
+        ref_wave_params = calc_ref_wave_params(ref_wav[:,1], fs_ref, **cmd_args)
+        print_wov_wave_param(ref_wave_params, ref_wav.shape[0], fs_ref)
+        wave_params = calc_wov_wav_params(trimed_wave[:,1], fs_wav, **cmd_args)
+        print_wov_wave_param(wave_params, trimed_wave.shape[0], fs_ref)
+
     cmd_args = parse_cmdline()
 
     if cmd_args['generate'] is not None:
@@ -244,7 +352,11 @@ if __name__ == "__main__":
     if cmd_args['preset'] is not None:
         wave_presets = {
             "sine_1K_10s": "sine;1.0;1000;0.;48000;2;S16;10",
-            "white_noise": "white_noise;1.0;0.0;0.2;48000;2;S16;10"
+            "white_noise": "white_noise;1.0;0.0;0.2;48000;2;S16;10",
+            # type;amp1;freq1;duration1;amp2;freq2;duration2;sample_rate;channels;format;
+            "wov_sine_sine": "wov_sine_sine;0.3;1000;4;1.0;1000;6;48000;2;S16",
+            # parameters for the first sine take no effect
+            "wov_zeros_sine": "wov_zeros_sine;0.3;1000;4;1.0;1000;6;48000;2;S16"
         }
         req_preset = cmd_args['preset'].strip()
         if req_preset not in wave_presets.keys():
@@ -257,7 +369,7 @@ if __name__ == "__main__":
         pass
 
     if cmd_args['compare'] is not None:
-        supported_mode = ['freq', 'binary', 'dsm']
+        supported_mode = ['freq', 'binary', 'dsm', 'wov']
         cmd_line = cmd_args['compare'].strip().split(';')
         comparison_mode = cmd_line[0].strip()
         if comparison_mode not in supported_mode:
@@ -277,3 +389,5 @@ if __name__ == "__main__":
             compare_wav_bin(wav_path, ref_path)
         if comparison_mode == 'dsm':
             compare_wav_dsm(wav_path, ref_path)
+        if comparison_mode == 'wov':
+            compare_wav_wov(wav_path, ref_path, **cmd_args)

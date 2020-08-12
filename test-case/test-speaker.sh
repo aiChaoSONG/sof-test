@@ -1,5 +1,7 @@
 #!/bin/bash
 
+set -e
+
 # TODO: case & descrption step need to confirm
 ##
 ## Case Name: test speaker test

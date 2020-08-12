@@ -1,5 +1,7 @@
 #!/bin/bash
 
+set -e
+
 ##
 ## Case Name: check-runtime-pm-status
 ## Preconditions:

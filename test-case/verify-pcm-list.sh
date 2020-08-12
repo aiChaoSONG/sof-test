@@ -1,5 +1,7 @@
 #!/bin/bash
 
+set -e
+
 ##
 ## Case Name: verify PCM list with tplg file
 ## Preconditions:

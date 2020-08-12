@@ -1,5 +1,7 @@
 #!/bin/bash
 
+set -e
+
 ##
 ## Case Name: simultaneous-playback-capture
 ## Preconditions:

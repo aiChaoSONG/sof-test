@@ -3,15 +3,17 @@
 mydir=$(cd "$(dirname "$0")"; pwd)
 
 # enable dynamic debug logs for SOF modules
-DYNDBG="/etc/modprobe.d/sof-dyndbg.conf"
+dyn_dbg_conf="/etc/modprobe.d/sof-dyndbg.conf"
+sof_logger="/usr/bin/sof-logger"
+sof_ctl="/usr/bin/sof-ctl"
+sof_ldc="/etc/sof/sof-$($mydir/tools/sof-dump-status.py -p).ldc"
 
 # check for the system package
-out_str=""
 func_check_pkg(){
     if command -v "$1" >/dev/null; then
         return
     else
-        out_str="$out_str""\tPlease install the \e[31m $1 \e[0m package\n"
+        out_str="$out_str""\tPlease install the \e[31m$1\e[0m package\n"
         check_res=1
     fi
 }
@@ -31,13 +33,47 @@ func_check_python_pkg(){
 
 func_check_file(){
     if [ -e "$1" ]; then
-        return
+        return 0
     fi
-    out_str="$out_str""Optional: Enable dynamic debug logs in \e[31m $1 \e[0m file\n\tFor example,\n\toptions snd_sof dyndbg=+p\n\toptions snd_sof_pci dyndbg=+p\n"
+    case $1 in
+        "$dyn_dbg_conf")
+            out_str="$out_str""\tOptional: Enable dynamic debug logs in \e[31m$1\e[0m file\n"
+            out_str="$out_str""\tFor example:\n\t\toptions snd_sof dyndbg=+p\n\t\toptions snd_sof_pci dyndbg=+p\n"
+            ;;
+        "$sof_logger")
+            out_str="$out_str""\tExecutable sof-logger should be installed to \e[31m$1\e[0m\n"
+            ;;
+        "$sof_ctl")
+            out_str="$out_str""\tExecutable sof-ctl should be installed to \e[31m$1\e[0m\n"
+            ;;
+        "$sof_ldc")
+            out_str="$out_str""\tSOF ldc file should be installed to \e[31m$1\e[0m\n"
+            ;;
+    esac
+
     check_res=1
 }
 
-check_res=0
+func_check_return_val() {
+    if [ "$1" -eq 0 ]; then
+        printf "Pass\n"
+    else
+        printf '\e[31mWarning\e[0m\n'
+        # Need ANSI color characters.
+        # shellcheck disable=SC2059
+        printf "$out_str"
+    fi
+}
+
+out_str="" check_res=0
+printf "Checking for required files\t\t"
+func_check_file "$sof_logger"
+func_check_file "$sof_ctl"
+func_check_file "$sof_ldc"
+func_check_file "$dyn_dbg_conf"
+func_check_return_val "$check_res"
+
+out_str="" check_res=0
 printf "Checking for some OS packages:\t\t"
 func_check_pkg expect
 func_check_pkg aplay
@@ -45,16 +81,7 @@ func_check_pkg python3
 func_check_python_pkg graphviz
 func_check_python_pkg numpy
 func_check_python_pkg scipy
-func_check_file "$DYNDBG"
-if [ $check_res -eq 0 ]; then
-    printf "pass\n"
-else
-    printf '\e[31mWarning\e[0m\n'
-# Need ANSI color characters to be the format string. This is not
-# unsanitized input.
-# shellcheck disable=SC2059
-    printf "$out_str"
-fi
+func_check_return_val "$check_res"
 
 # check for the tools folder
 out_str="" check_res=0
@@ -68,7 +95,7 @@ cd "$mydir"
 \tPlease use the following command to give execution permission:\n
 \t\e[31mcd ${mydir}\n
 \tchmod a+x tools/*\e[0m"
-[[ $check_res -eq 0 ]] && echo "pass" || \
+[[ $check_res -eq 0 ]] && echo "Pass" || \
     echo -e "\e[31mWarning\e[0m\nSolution:"$out_str
 
 out_str="" check_res=0
@@ -79,7 +106,7 @@ echo -ne "Checking for case folder:\t\t"
 \tPlease use the following command to give execution permission:\n
 \t\e[31mcd ${mydir}\n
 \tchmod a+x test-case/*\e[0m"
-[[ $check_res -eq 0 ]] && echo "pass" || \
+[[ $check_res -eq 0 ]] && echo "Pass" || \
     echo -e "\e[31mWarning\e[0m\nSolution:"$out_str
 
 out_str="" check_res=0
@@ -115,7 +142,7 @@ check_res=1 && out_str=$out_str"\n
 \tMissing /var/log/kern.log file, which is where we'll catch the kernel log\n
 \t\tPlease create the \e[31mlink\e[0m of your distribution kernel log file at \e[31m/var/log/kern.log\e[0m"
 
-[[ $check_res -eq 0 ]] && echo "pass" || \
+[[ $check_res -eq 0 ]] && echo "Pass" || \
     echo -e "\e[31mWarning\e[0m\nSolution:"$out_str
 
 out_str="" check_res=0
@@ -149,5 +176,5 @@ esac
 \t\tPossible permission error occurred during script execution. Please ensure\n
 \t\tthe permissions are properly set up according to instructions."
 
-[[ $check_res -eq 0 ]] && echo "pass" || \
+[[ $check_res -eq 0 ]] && echo "Pass" || \
     echo -e "\e[31mWarning\e[0m\nSolution:"$out_str

@@ -100,6 +100,17 @@ func_error_exit()
     exit 1
 }
 
+check_running_pipeline_count()
+{
+    arecord_count=$(pidof arecord | wc -w)
+    dlogi "$arecord_count capture process is running"
+    aplay_count=$(pidof aplay | wc -w)
+    dlogi "$aplay_count playback process is running"
+    let overall_count="$arecord_count"+"$aplay_count"
+    [[ $overall_count -eq $max_count ]] ||
+        func_error_exit "$max_count pipelines started, but only $overall_count pipelines detected"
+}
+
 for i in $(seq 1 $loop_cnt)
 do
     dlogi "===== Testing: (Loop: $i/$loop_cnt) ====="
@@ -117,13 +128,7 @@ do
     # check all refer capture pipeline status
     # 1. check process count:
     dlogi "checking playback and capture process count"
-    arecord_count=$(pidof arecord | wc -w)
-    dlogi "$arecord_count capture process is running"
-    aplay_count=$(pidof aplay | wc -w)
-    dlogi "$aplay_count playback process is running"
-    let overall_count="$arecord_count"+"$aplay_count"
-    [[ $overall_count -eq $max_count ]] ||
-        func_error_exit "$max_count pipelines started, but only $overall_count pipelines detected"
+    check_running_pipeline_count
 
     # 2. check arecord process status
     dlogi "checking pipeline status"
@@ -136,14 +141,8 @@ do
     sleep ${OPT_VALUE_lst['w']}
 
     # 3. check process count again:
-    dlogi "checking playback and capture process count"
-    arecord_count=$(pidof arecord | wc -w)
-    dlogi "$arecord_count capture process is running"
-    aplay_count=$(pidof aplay | wc -w)
-    dlogi "$aplay_count playback process is running"
-    let overall_count="$arecord_count"+"$aplay_count"
-    [[ $overall_count -eq $max_count ]] ||
-        func_error_exit "$max_count pipelines started, but only $overall_count pipelines detected"
+    dlogi "checking playback and capture process count again"
+    check_running_pipeline_count
 
     # 4. check arecord process status
     dlogi "checking pipeline again"

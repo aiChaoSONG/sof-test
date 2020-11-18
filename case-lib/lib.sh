@@ -270,3 +270,24 @@ is_sof_used()
 {
     grep -q "sof" /proc/asound/cards;
 }
+
+func_error_exit()
+{
+    dloge "$*"
+    pgrep -a aplay
+    pgrep -a arecord
+    pkill -9 aplay
+    pkill -9 arecord
+    exit 1
+}
+
+check_running_pipeline_count()
+{
+    arecord_count=$(pidof arecord | wc -w)
+    dlogi "$arecord_count capture process is running"
+    aplay_count=$(pidof aplay | wc -w)
+    dlogi "$aplay_count playback process is running"
+    overall_count=$((arecord_count + aplay_count))
+    [[ $overall_count -eq $max_count ]] ||
+        func_error_exit "$max_count pipelines started, but only $overall_count pipelines detected"
+}
